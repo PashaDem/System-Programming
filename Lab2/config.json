@@ -1,0 +1,10 @@
+[
+  {
+    "pathToExe": "C:\\Users\\user\\source\\repos\\test_app1\\x64\\Debug\\test_app1.exe",
+    "periodInMinutes": 1
+  },
+  {
+    "pathToExe": "C:\\Users\\user\\source\\repos\\test_app_2\\x64\\Debug\\test_app_2.exe",
+    "periodInMinutes": 2
+  }
+]
