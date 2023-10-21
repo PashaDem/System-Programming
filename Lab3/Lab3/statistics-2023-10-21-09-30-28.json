@@ -1,8 +1,0 @@
-{
-    "averageRequestDuration": 1.2,
-    "codes": {
-        "200": 2,
-        "404": 2,
-        "500": 1
-    }
-}
