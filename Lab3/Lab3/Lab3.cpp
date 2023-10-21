@@ -189,7 +189,7 @@ int main() {
 
     // Переменные для вычисления среднего времени запроса
     double totalRequestDuration = 0;
-    int totalRequests = s.size(); 
+    int totalRequests = main_stat_storage.size(); 
 
     for (const ThreadMetrics& request : main_stat_storage) {
         // Подсчет статус-кодов
@@ -197,10 +197,12 @@ int main() {
 
         // Вычисление общей продолжительности запросов
         totalRequestDuration += request.requestDuration;
+        std::cout << request.requestDuration << std::endl;
     }
 
     // Вычисление среднего времени запроса
     double averageRequestDuration = totalRequestDuration / totalRequests;
+    std::cout << averageRequestDuration << std::endl;
 
     // Создаем JSON-объект для хранения статистики
     json statistics;
