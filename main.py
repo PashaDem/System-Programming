@@ -1,7 +1,7 @@
 import functools
 import time
+from multiprocessing import Manager, Pool, Queue, current_process
 from typing import Dict, List
-from multiprocessing import Queue, Manager, Pool, current_process
 
 
 def partition(data: List, chunk_size: int) -> List:
