@@ -2,25 +2,31 @@ import os
 import socket
 import selectors
 import types
-from typing import Dict, List, Tuple, Literal
+from typing import Dict, List, Tuple, Literal, Union
 from uuid import uuid4, UUID
+from enum import StrEnum, auto
+
+
+class Status(StrEnum):
+    IN_CHAT = auto()
+    OUT_OF_CHAT = auto()
 
 
 class User:
     chat: 'Chat' = None
     addr: Tuple[str, int] = None
-    status: Literal['in_chat', 'out_of_chat']
+    status: Status
     conn: socket.socket = None
 
     def __init__(self, addr, conn):
         self.user_id: UUID = uuid4()
-        self.status = 'out_of_chat'
+        self.status = Status.OUT_OF_CHAT
         self.addr = addr
         self.conn = conn
 
     def send_message(self, message: bytes):
-        if self.status == 'in_chat' and self.chat:
-            self.chat.publish_message(message)
+        if self.status == Status.IN_CHAT and self.chat:
+            self.chat.publish_message(message, except_list=[self])
 
 
 class Chat:
@@ -34,15 +40,22 @@ class Chat:
                 del self.users[i]
                 break
 
-    def publish_message(self, message: bytes):
+    def add_user(self, user: 'User'):
+        self.users.append(user)
+        user.chat = self
+        user.status = Status.IN_CHAT
+
+    def publish_message(self, message: bytes, except_list: List['User']):
         for user in self.users:
-            user.conn.send(message)
+            if user not in except_list:
+                user.conn.send(message)
 
 
 class ConnectionServer:
 
     def __init__(self, host: str = '127.0.0.1', port: int = 8000):
         self.users: List['User'] = []
+        self.chats: List['Chat'] = []
         self.session_collection: Dict[UUID, List[socket.socket]] = {}
         self.selector = selectors.DefaultSelector()
         self.listener_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -70,21 +83,44 @@ class ConnectionServer:
         print(f'Accepted connection from {addr}')
         conn.setblocking(False)
         data = types.SimpleNamespace(addr=addr, inb=b'', outb=b'')
-        events = selectors.EVENT_READ | selectors.EVENT_WRITE
+        events = selectors.EVENT_READ #| selectors.EVENT_WRITE
         self.selector.register(conn, events, data=data)
-        conn.send(b'Enter the identifier of the session:')
+        conn.send(b'Enter the command:\n')
         self.users.append(User(addr=addr, conn=conn))
 
     def remove_connection_wrapper(self, data, sock):
         for i, user in enumerate(self.users):
             if data.addr == user.addr:
                 if user.chat:
-                    user.chat.delete_user(user.user_id)
+                    self.delete_user_from_chat(user)
                 del self.users[i]
                 break
         print(f"Closing connection to {data.addr}")
         self.selector.unregister(sock)
         sock.close()
+
+    def delete_user_from_chat(self, user: 'User'):
+        user.send_message(bytes(f'The user {user.user_id} left the chat.\n'.encode()))
+        user.chat.delete_user(user.user_id)
+
+    def add_user_to_chat(self, user: 'User', chat: 'Chat'):
+        chat.add_user(user)
+        chat.publish_message(bytes(f'User {user.user_id} has been added to the chat.\n'.encode()), except_list=[])
+
+    def create_chat(self, user: 'User'):
+        chat = Chat()
+        print('Chat was created')
+        chat.add_user(user)
+        print('User was added to the chat')
+        self.chats.append(chat)
+        print('Added chat to ConnServ chat list')
+        user.conn.send(bytes(f'Chat was created with identifier: `{chat.chat_id}`\n'.encode()))
+        print('Sent message')
+
+    def get_user_by_address(self, addr) -> Union[None, 'User']:
+        user_list = [user for user in filter(lambda user: user.addr == addr, self.users)]
+        print(f'user list {user_list}')
+        return user_list[0] if len(user_list) else None
 
     def service_connection(self, key, mask):
         sock = key.fileobj
@@ -92,15 +128,55 @@ class ConnectionServer:
         if mask & selectors.EVENT_READ:
             recv_data = sock.recv(1024)  # Should be ready to read
             if recv_data:
-                data.outb += recv_data
-            else:
-                # need to delete the user from the chat and from the ConnectionServer's collection
-                self.remove_connection_wrapper(data=data, sock=sock)
-        if mask & selectors.EVENT_WRITE:
-            if data.outb:
-                print(f"Echoing {data.outb!r} to {data.addr}")
-                sent = sock.send(data.outb)  # Should be ready to write
-                data.outb = data.outb[sent:]
+                buff: bytes = recv_data
+                user = self.get_user_by_address(data.addr)
+                decoded_command = buff.decode().rstrip()
+                if user.status == Status.IN_CHAT:
+                    print('In chat processing')
+                    if decoded_command == ':exit' or decoded_command == ':quit':
+                        self.delete_user_from_chat(user)
+                    else:
+                        user.send_message(buff)
+
+                else:  # not in chat now
+                    print('Out of chat proceessing')
+                    if decoded_command == ':exit' or decoded_command == ':quit':
+                        print('inside exit statement')
+                        self.remove_connection_wrapper(data=data, sock=sock)
+                    elif decoded_command == ':create':
+                        print('Creating the chat')
+                        self.create_chat(user)
+
+                    else:
+                        print('UUID parsing')
+                        is_uuid = False
+                        try:
+                            print('before uuiding')
+                            identifier = UUID(decoded_command[1:])
+                            print('after uuiding')
+                        except TypeError:
+                            print('Not uuid')
+                            user.conn.send(b'Unknown command.\n')
+                        else:
+
+                            # decoded command contains the uuid of potential chat
+                            print(f'Connecting to service with uuid {identifier}')
+                            potential_chat_identifier = identifier
+                            print(f'Identifier {identifier}')
+                            chat_rooms = [chat for chat in filter(lambda chat_room: chat_room.chat_id == potential_chat_identifier, self.chats)]
+                            chat_room = chat_rooms[0] if len(chat_rooms) else None
+                            if chat_rooms is None:
+                                print('No chat with such uuid')
+                                user.conn.send(bytes(f'There is no chat room with id = `{potential_chat_identifier}`'.encode()))
+                            else:
+                                print('adding user to the chat')
+                                self.add_user_to_chat(user, chat_room)
+        # if mask & selectors.EVENT_WRITE:
+        #     print('Event write processing')
+        #     if data.outb:
+        #         print(f"Echoing {data.outb!r} to {data.addr}")
+        #         sent = sock.send(data.outb)  # Should be ready to write
+        #         data.outb = data.outb[sent:]
 
 
 if __name__ == '__main__':
