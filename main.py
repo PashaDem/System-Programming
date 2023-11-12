@@ -1,4 +1,4 @@
-import time
+import functools
 import time
 from typing import Dict, List
 from multiprocessing import Queue, Manager, Pool, current_process
@@ -50,9 +50,11 @@ def main(partition_size: int):
                 for chunk in partition(contents, partition_size):
                     params.append((chunk, queue, partition_counter, lock))
                 results = pool.starmap(map_frequencies, params)
+                final_result = functools.reduce(merge_dictionaries, results)
         while not queue.empty():
             print(queue.get())
         print(f"Partitions processed count: {partition_counter}.")
+        print(f"Aardvark has appeared {final_result['Aardvark']} times.")
 
 
 if __name__ == "__main__":
