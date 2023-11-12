@@ -2,9 +2,10 @@ import os
 import socket
 import selectors
 import types
-from typing import Dict, List, Tuple, Literal, Union
+from typing import Dict, List, Tuple, Union
 from uuid import uuid4, UUID
 from enum import StrEnum, auto
+import logging
 
 
 class Status(StrEnum):
@@ -38,6 +39,8 @@ class Chat:
         for i, user in enumerate(self.users):
             if user.user_id == user_id:
                 del self.users[i]
+                user.status = Status.OUT_OF_CHAT
+                user.chat = None
                 break
 
     def add_user(self, user: 'User'):
@@ -134,8 +137,11 @@ class ConnectionServer:
                 if user.status == Status.IN_CHAT:
                     print('In chat processing')
                     if decoded_command == ':exit' or decoded_command == ':quit':
+                        print('deleting user from the chat')
                         self.delete_user_from_chat(user)
+                        print('user deleted from the chat')
                     else:
+                        print('user publishing message')
                         user.send_message(buff)
 
                 else:  # not in chat now
@@ -154,8 +160,9 @@ class ConnectionServer:
                             print('before uuiding')
                             identifier = UUID(decoded_command[1:])
                             print('after uuiding')
-                        except TypeError:
+                        except ValueError as e:
                             print('Not uuid')
+                            logging.exception(e)
                             user.conn.send(b'Unknown command.\n')
                         else:
 
@@ -171,12 +178,6 @@ class ConnectionServer:
                             else:
                                 print('adding user to the chat')
                                 self.add_user_to_chat(user, chat_room)
-        # if mask & selectors.EVENT_WRITE:
-        #     print('Event write processing')
-        #     if data.outb:
-        #         print(f"Echoing {data.outb!r} to {data.addr}")
-        #         sent = sock.send(data.outb)  # Should be ready to write
-        #         data.outb = data.outb[sent:]
 
 
 if __name__ == '__main__':
